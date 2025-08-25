@@ -9,10 +9,17 @@ class cv32e40p_base_sequence extends uvm_sequence #(cv32e40p_seq_item);
     virtual task body();
         cv32e40p_seq_item req;
         
+        `uvm_info("BASE_SEQ", "Starting base sequence", UVM_MEDIUM)
+        
         req = cv32e40p_seq_item::type_id::create("req");
         start_item(req);
         assert(req.randomize());
+        
+        `uvm_info("BASE_SEQ", $sformatf("Generated: %s", req.instruction_decode()), UVM_MEDIUM)
+        
         finish_item(req);
+        
+        `uvm_info("BASE_SEQ", "Base sequence completed", UVM_MEDIUM)
     endtask
 
 endclass
@@ -28,10 +35,17 @@ class cv32e40p_reset_sequence extends cv32e40p_base_sequence;
     virtual task body();
         cv32e40p_seq_item req;
         
+        `uvm_info("RESET_SEQ", "*** GENERATING RESET SEQUENCE ***", UVM_LOW)
+        
         req = cv32e40p_seq_item::type_id::create("req");
         start_item(req);
         assert(req.randomize() with { rst_ni == 1'b0; });
+        
+        `uvm_info("RESET_SEQ", "Reset asserted - all other signals randomized", UVM_MEDIUM)
+        
         finish_item(req);
+        
+        `uvm_info("RESET_SEQ", "Reset sequence completed", UVM_MEDIUM)
     endtask
 
 endclass
@@ -46,6 +60,9 @@ class cv32e40p_alu_add_sequence extends cv32e40p_base_sequence;
     
     virtual task body();
         cv32e40p_seq_item req;
+        
+        `uvm_info("ALU_ADD_SEQ", "Generating ADD instruction", UVM_MEDIUM)
+        
         req = cv32e40p_seq_item::type_id::create("req");
         start_item(req);
         assert(req.randomize() with { 
@@ -53,6 +70,11 @@ class cv32e40p_alu_add_sequence extends cv32e40p_base_sequence;
             instr_rdata_i[14:12] == 3'b000;   // funct3 for ADD
             instr_rdata_i[31:25] == 7'b0000000; // funct7 for ADD
         });
+        
+        `uvm_info("ALU_ADD_SEQ", $sformatf("Generated ADD: rs1=x%0d, rs2=x%0d, rd=x%0d", 
+                  req.instr_rdata_i[19:15], req.instr_rdata_i[24:20], req.instr_rdata_i[11:7]), UVM_MEDIUM)
+        `uvm_info("ALU_ADD_SEQ", $sformatf("Instruction: %s", req.instruction_decode()), UVM_MEDIUM)
+        
         finish_item(req);
     endtask
 endclass
@@ -395,9 +417,16 @@ class cv32e40p_arithmetic_sequence extends cv32e40p_base_sequence;
         cv32e40p_alu_xor_sequence xor_seq;
         cv32e40p_alu_or_sequence or_seq;
         cv32e40p_alu_and_sequence and_seq;
+        int operation_choice;
+        string operation_names[5] = {"ADD", "SUB", "XOR", "OR", "AND"};
+        
+        `uvm_info("ARITH_SEQ", "*** STARTING ARITHMETIC SEQUENCE (5 operations) ***", UVM_LOW)
         
         repeat(5) begin
-            case($urandom_range(0, 4))
+            operation_choice = $urandom_range(0, 4);
+            `uvm_info("ARITH_SEQ", $sformatf("Generating %s operation", operation_names[operation_choice]), UVM_MEDIUM)
+            
+            case(operation_choice)
                 0: begin
                     add_seq = cv32e40p_alu_add_sequence::type_id::create("add_seq");
                     add_seq.start(m_sequencer);
@@ -420,6 +449,8 @@ class cv32e40p_arithmetic_sequence extends cv32e40p_base_sequence;
                 end
             endcase
         end
+        
+        `uvm_info("ARITH_SEQ", "*** ARITHMETIC SEQUENCE COMPLETED ***", UVM_LOW)
     endtask
 endclass
 
@@ -560,7 +591,10 @@ class cv32e40p_data_dependency_sequence extends cv32e40p_base_sequence;
         logic [4:0] shared_reg;
         logic [4:0] rs1_reg, rs2_reg;
         
+        `uvm_info("DATA_DEP_SEQ", "*** GENERATING RAW DATA DEPENDENCY SEQUENCE ***", UVM_LOW)
+        
         // Generate first instruction (producer)
+        `uvm_info("DATA_DEP_SEQ", "Generating PRODUCER instruction", UVM_MEDIUM)
         req1 = cv32e40p_seq_item::type_id::create("req1");
         start_item(req1);
         assert(req1.randomize() with { 
@@ -570,9 +604,14 @@ class cv32e40p_data_dependency_sequence extends cv32e40p_base_sequence;
             instr_rdata_i[11:7] != 5'b00000;  // rd != x0 (not zero register)
         });
         shared_reg = req1.instr_rdata_i[11:7]; // Extract destination register
+        
+        `uvm_info("DATA_DEP_SEQ", $sformatf("PRODUCER: %s", req1.instruction_decode()), UVM_MEDIUM)
+        `uvm_info("DATA_DEP_SEQ", $sformatf("PRODUCER writes to x%0d", shared_reg), UVM_MEDIUM)
+        
         finish_item(req1);
         
         // Generate second instruction (consumer) with data dependency
+        `uvm_info("DATA_DEP_SEQ", "Generating CONSUMER instruction with RAW dependency", UVM_MEDIUM)
         req2 = cv32e40p_seq_item::type_id::create("req2");
         start_item(req2);
         assert(req2.randomize() with { 
@@ -583,10 +622,14 @@ class cv32e40p_data_dependency_sequence extends cv32e40p_base_sequence;
             (instr_rdata_i[19:15] == shared_reg) || (instr_rdata_i[24:20] == shared_reg);
             instr_rdata_i[11:7] != 5'b00000;  // rd != x0
         });
+        
+        `uvm_info("DATA_DEP_SEQ", $sformatf("CONSUMER: %s", req2.instruction_decode()), UVM_MEDIUM)
+        `uvm_info("DATA_DEP_SEQ", $sformatf("CONSUMER reads from x%0d and x%0d", 
+                  req2.instr_rdata_i[19:15], req2.instr_rdata_i[24:20]), UVM_MEDIUM)
+        
         finish_item(req2);
         
-        `uvm_info("DATA_DEP_SEQ", $sformatf("Generated data dependency: Instr1 rd=x%0d, Instr2 rs1=x%0d rs2=x%0d", 
-                  shared_reg, req2.instr_rdata_i[19:15], req2.instr_rdata_i[24:20]), UVM_MEDIUM)
+        `uvm_info("DATA_DEP_SEQ", $sformatf("*** RAW DEPENDENCY CREATED: x%0d written then read ***", shared_reg), UVM_LOW)
     endtask
 endclass
 
@@ -831,14 +874,23 @@ class cv32e40p_csr_test_sequence extends cv32e40p_base_sequence;
         cv32e40p_csr_set_sequence set_seq;
         cv32e40p_csr_clear_sequence clear_seq;
         cv32e40p_csr_write_imm_sequence write_imm_seq;
+        int operation_choice;
+        string operation_names[5] = {"CSR_READ", "CSR_WRITE", "CSR_SET", "CSR_CLEAR", "CSR_WRITE_IMM"};
+        string csr_names[5] = {"MSTATUS", "MIE", "MTVEC", "MEPC", "MCAUSE"};
+        
+        `uvm_info("CSR_TEST_SEQ", "*** STARTING CSR TEST SEQUENCE (10 operations) ***", UVM_LOW)
         
         repeat(10) begin
-            case($urandom_range(0, 4))
+            operation_choice = $urandom_range(0, 4);
+            `uvm_info("CSR_TEST_SEQ", $sformatf("Generating %s operation", operation_names[operation_choice]), UVM_MEDIUM)
+            
+            case(operation_choice)
                 0: begin
                     read_seq = cv32e40p_csr_read_sequence::type_id::create("read_seq");
                     assert(read_seq.randomize() with { 
                         csr_addr inside {cv32e40p_pkg::CSR_MSTATUS, cv32e40p_pkg::CSR_MIE, cv32e40p_pkg::CSR_MTVEC, cv32e40p_pkg::CSR_MEPC, cv32e40p_pkg::CSR_MCAUSE};
                     });
+                    `uvm_info("CSR_TEST_SEQ", $sformatf("Reading CSR 0x%03h", read_seq.csr_addr), UVM_MEDIUM)
                     read_seq.start(m_sequencer);
                 end
                 1: begin
@@ -846,6 +898,7 @@ class cv32e40p_csr_test_sequence extends cv32e40p_base_sequence;
                     assert(write_seq.randomize() with { 
                         csr_addr inside {cv32e40p_pkg::CSR_MSTATUS, cv32e40p_pkg::CSR_MIE, cv32e40p_pkg::CSR_MTVEC, cv32e40p_pkg::CSR_MEPC};
                     });
+                    `uvm_info("CSR_TEST_SEQ", $sformatf("Writing CSR 0x%03h", write_seq.csr_addr), UVM_MEDIUM)
                     write_seq.start(m_sequencer);
                 end
                 2: begin
@@ -853,6 +906,7 @@ class cv32e40p_csr_test_sequence extends cv32e40p_base_sequence;
                     assert(set_seq.randomize() with { 
                         csr_addr inside {cv32e40p_pkg::CSR_MIE, cv32e40p_pkg::CSR_MSTATUS};
                     });
+                    `uvm_info("CSR_TEST_SEQ", $sformatf("Setting bits in CSR 0x%03h", set_seq.csr_addr), UVM_MEDIUM)
                     set_seq.start(m_sequencer);
                 end
                 3: begin
@@ -860,6 +914,7 @@ class cv32e40p_csr_test_sequence extends cv32e40p_base_sequence;
                     assert(clear_seq.randomize() with { 
                         csr_addr inside {cv32e40p_pkg::CSR_MIE, cv32e40p_pkg::CSR_MSTATUS};
                     });
+                    `uvm_info("CSR_TEST_SEQ", $sformatf("Clearing bits in CSR 0x%03h", clear_seq.csr_addr), UVM_MEDIUM)
                     clear_seq.start(m_sequencer);
                 end
                 4: begin
@@ -867,10 +922,13 @@ class cv32e40p_csr_test_sequence extends cv32e40p_base_sequence;
                     assert(write_imm_seq.randomize() with { 
                         csr_addr inside {cv32e40p_pkg::CSR_MIE, cv32e40p_pkg::CSR_MSTATUS};
                     });
+                    `uvm_info("CSR_TEST_SEQ", $sformatf("Writing immediate to CSR 0x%03h", write_imm_seq.csr_addr), UVM_MEDIUM)
                     write_imm_seq.start(m_sequencer);
                 end
             endcase
         end
+        
+        `uvm_info("CSR_TEST_SEQ", "*** CSR TEST SEQUENCE COMPLETED ***", UVM_LOW)
     endtask
 endclass
 
