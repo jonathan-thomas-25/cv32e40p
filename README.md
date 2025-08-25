@@ -42,6 +42,7 @@ Assembly generation
 Coverage
 
 1. Go to Run_Files/coverage_reports/
+2. Currently having trouble opening the html file
 
 ## References
 
