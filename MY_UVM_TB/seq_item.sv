@@ -85,6 +85,63 @@ class cv32e40p_seq_item extends uvm_sequence_item;
         super.new(name);
     endfunction
 
+    // Constraints for proper packet generation
+    constraint reset_constraint {
+        rst_ni dist {1 := 95, 0 := 5}; // Reset mostly inactive
+    }
+
+    constraint clock_enable_constraint {
+        pulp_clock_en_i == 1'b1; // Clock always enabled
+        scan_cg_en_i == 1'b0;    // Scan mode disabled
+    }
+
+    constraint address_constraint {
+        boot_addr_i inside {[32'h00000000:32'h0000FFFF]}; // Valid boot address range
+        mtvec_addr_i inside {[32'h00000000:32'h0000FFFF]}; // Valid mtvec address range
+        dm_halt_addr_i inside {[32'h00000000:32'h0000FFFF]}; // Valid debug halt address
+        dm_exception_addr_i inside {[32'h00000000:32'h0000FFFF]}; // Valid debug exception address
+        hart_id_i inside {[0:15]}; // Reasonable hart ID range
+    }
+
+    constraint memory_interface_constraint {
+        // Instruction memory interface
+        instr_gnt_i dist {1 := 80, 0 := 20}; // Grant mostly high
+        instr_rvalid_i dist {1 := 70, 0 := 30}; // Valid mostly high
+        
+        // Data memory interface  
+        data_gnt_i dist {1 := 80, 0 := 20}; // Grant mostly high
+        data_rvalid_i dist {1 := 70, 0 := 30}; // Valid mostly high
+    }
+
+    constraint interrupt_constraint {
+        irq_i dist {0 := 90, [1:32'hFFFFFFFF] := 10}; // Interrupts mostly disabled
+    }
+
+    constraint debug_constraint {
+        debug_req_i dist {0 := 95, 1 := 5}; // Debug requests rare
+    }
+
+    constraint fetch_constraint {
+        fetch_enable_i dist {1 := 90, 0 := 10}; // Fetch mostly enabled
+    }
+
+    constraint instruction_data_constraint {
+        // Valid RISC-V instruction patterns
+        instr_rdata_i[1:0] == 2'b11; // 32-bit instruction encoding
+        
+        // Bias towards common instruction types
+        instr_rdata_i[6:0] dist {
+            7'b0110011 := 25, // R-type (ADD, SUB, etc.)
+            7'b0010011 := 25, // I-type (ADDI, etc.)
+            7'b0000011 := 15, // Load
+            7'b0100011 := 15, // Store
+            7'b1100011 := 10, // Branch
+            7'b1110011 := 5,  // System/CSR
+            7'b0101011 := 3,  // CV32E40P Custom ALU
+            7'b1011011 := 2   // CV32E40P Custom IMM
+        };
+    }
+
     // Custom print function for detailed instruction analysis
     function string instruction_decode();
         string opcode_str, funct3_str, funct7_str, decode_str;
