@@ -31,6 +31,12 @@ Seperate sequences are written for each individual instructions and also for eac
 2. For running all tests with coverage - python3 run_sim.py --coverage --all-tests
 3. For running individual tests see run_sim_commands.txt
 
+Assembly generation
+
+1. Go to Run_Files/ASM_Generation
+2. ./generate_asm.py
+3. for fine tuning the instructions, see the text file
+
 ## References
 
 1. [Gautschi, Michael, et al. "Near-Threshold RISC-V Core With DSP Extensions for Scalable IoT Endpoint Devices."
