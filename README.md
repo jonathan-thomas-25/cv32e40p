@@ -39,6 +39,10 @@ Assembly generation
 2. ./generate_asm.py
 3. for fine tuning the instructions, see the text file
 
+Coverage
+
+1. Go to Run_Files/coverage_reports/
+
 ## References
 
 1. [Gautschi, Michael, et al. "Near-Threshold RISC-V Core With DSP Extensions for Scalable IoT Endpoint Devices."
