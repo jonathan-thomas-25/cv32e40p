@@ -58,6 +58,31 @@ module tb_top;
         cv32e40p_if_inst.data_rdata_i = 32'h0;
     end
 
+    // Simple instruction memory model
+    always @(posedge clk) begin
+        if (rst_n) begin
+            // Respond to instruction fetch requests
+            if (cv32e40p_if_inst.instr_req_o && cv32e40p_if_inst.instr_gnt_i) begin
+                cv32e40p_if_inst.instr_rvalid_i <= #1 1'b1;
+                // Provide a simple NOP instruction (ADDI x0, x0, 0)
+                cv32e40p_if_inst.instr_rdata_i <= #1 32'h00000013;
+            end else begin
+                cv32e40p_if_inst.instr_rvalid_i <= #1 1'b0;
+            end
+            
+            // Respond to data memory requests
+            if (cv32e40p_if_inst.data_req_o && cv32e40p_if_inst.data_gnt_i) begin
+                cv32e40p_if_inst.data_rvalid_i <= #1 1'b1;
+                cv32e40p_if_inst.data_rdata_i <= #1 32'h0;
+            end else begin
+                cv32e40p_if_inst.data_rvalid_i <= #1 1'b0;
+            end
+        end else begin
+            cv32e40p_if_inst.instr_rvalid_i <= 1'b0;
+            cv32e40p_if_inst.data_rvalid_i <= 1'b0;
+        end
+    end
+
     // DUT instantiation
     cv32e40p_top #(
         .COREV_PULP(0),
@@ -121,8 +146,8 @@ module tb_top;
         // Set interface in config_db
         uvm_config_db#(virtual cv32e40p_if)::set(null, "*", "vif", cv32e40p_if_inst);
         
-        // Run the test
-        run_test("cv32e40p_test");
+        // Run the test (test name will be taken from +UVM_TESTNAME)
+        run_test();
     end
 
     // Optional: Waveform dumping

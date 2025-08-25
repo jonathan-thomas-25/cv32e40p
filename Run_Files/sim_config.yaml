@@ -1,0 +1,126 @@
+# CV32E40P Simulation Configuration File
+# This file defines test cases, build options, and simulation settings
+
+# Test Configuration
+test:
+  # Available test cases (from MY_UVM_TB/Testcases/)
+  available_tests:
+    - cv32e40p_random_test
+    - cv32e40p_arithmetic_test
+    - cv32e40p_comparison_test
+    - cv32e40p_shift_test
+    - cv32e40p_custom_alu_test
+    - cv32e40p_custom_imm_test
+    - cv32e40p_data_dependency_test
+  
+  # Default test to run
+  default_test: cv32e40p_random_test
+  
+  # Test-specific parameters
+  test_params:
+    cv32e40p_random_test:
+      num_transactions: 100
+      seed: 1
+    cv32e40p_arithmetic_test:
+      num_transactions: 50
+      seed: 2
+    cv32e40p_comparison_test:
+      num_transactions: 75
+      seed: 3
+    cv32e40p_shift_test:
+      num_transactions: 60
+      seed: 4
+
+# Build Configuration
+build:
+  # Compiler options
+  vcs_options:
+    - "-full64"
+    - "-sverilog"
+    - "-ntb_opts uvm-1.2"
+    - "-debug_access+all"
+    - "-kdb"
+    - "-timescale=1ns/1ps"
+    - "-CFLAGS -DVCS"
+    - "$VCS_HOME/etc/uvm-1.1/dpi/uvm_dpi.cc"
+    - "-l"
+    - "comp.log"
+  
+  # Additional compile options based on configuration
+  debug_mode: true
+  wave_dump: true
+  
+  # Coverage options
+  coverage:
+    enabled: false
+    types:
+      - line
+      - cond
+      - fsm
+      - branch
+      - tgl
+    output_dir: "coverage_db"
+    merge_dir: "merged_coverage_db"
+    # Coverage compilation options (only compile-time options)
+    compile_options:
+      - "-cm_hier coverage_hier.cfg"
+    # Coverage simulation options (runtime options)
+    sim_options:
+      - "-cm_name"
+      - "-cm_log"
+
+# Simulation Configuration
+simulation:
+  # Runtime options
+  plusargs:
+    - "+UVM_TESTNAME"
+    - "+UVM_VERBOSITY=UVM_HIGH"
+  
+  # Waveform options
+  waves:
+    format: "vcd"  # vcd, fsdb, vpd
+    file: "waves.vcd"
+    depth: "all"
+  
+  # Timeout settings
+  timeout: "1000ms"
+  
+  # Random seed control
+  seed_mode: "auto"  # auto, fixed, random
+  fixed_seed: 12345
+
+# Environment Configuration
+environment:
+  # Tool paths (can be overridden by environment variables)
+  vcs_home: "$VCS_HOME"
+  
+  # Include directories
+  include_dirs:
+    - "../rtl/include"
+    - "../rtl"
+    - "../bhv"
+    - "../bhv/include"
+    - "../sva"
+    - "../MY_UVM_TB"
+    - "$VCS_HOME/etc/uvm-1.2/src"
+
+# Logging Configuration
+logging:
+  compile_log: "comp.log"
+  simulation_log: "sim.log"
+  verbosity: "medium"  # low, medium, high, debug
+
+# Coverage Merge Configuration
+coverage_merge:
+  # Enable automatic merging after running multiple tests
+  auto_merge: true
+  # Coverage databases to merge (populated automatically when running multiple tests)
+  databases: []
+  # Merged database name
+  merged_name: "merged_coverage"
+  # Coverage report options
+  report:
+    enabled: true
+    format: "html"  # html, text, both
+    output_dir: "coverage_reports"
+    exclude_files: []

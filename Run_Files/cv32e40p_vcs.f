@@ -27,6 +27,7 @@
 +v2k
 -debug_access+all
 -kdb
+-top tb_top
 
 
 // Include directories
@@ -43,6 +44,7 @@ $VCS_HOME/etc/uvm-1.2/src/uvm_pkg.sv
 ../rtl/include/cv32e40p_apu_core_pkg.sv
 ../rtl/include/cv32e40p_fpu_pkg.sv
 ../rtl/include/cv32e40p_pkg.sv
+../MY_UVM_TB/risc_instr_pkg.sv
 
 // Core RTL files
 ../rtl/cv32e40p_if_stage.sv
