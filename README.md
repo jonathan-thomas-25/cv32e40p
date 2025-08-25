@@ -27,6 +27,8 @@ Seperate sequences are written for each individual instructions and also for eac
 
 ## **Run Commands**
 
+Simulation using UVM testbench
+
 1. Go to Run_Files
 2. For running all tests with coverage - python3 run_sim.py --coverage --all-tests
 3. For running individual tests see run_sim_commands.txt
