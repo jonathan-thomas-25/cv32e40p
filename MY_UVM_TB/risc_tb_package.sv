@@ -31,5 +31,8 @@ package risc_tb_package;
     `include "Testcases/custom_imm_test.sv"
     `include "Testcases/data_dependency_test.sv"
     `include "Testcases/random_test.sv"
+    `include "Testcases/csr_advanced_test.sv"
+    `include "Testcases/csr_behavioral_test.sv"
+    `include "Testcases/csr_control_test.sv"
 
 endpackage : risc_tb_package

@@ -31,6 +31,8 @@ class InstrType(Enum):
     CUSTOM_ALU = "custom_alu"
     CUSTOM_BIT = "custom_bit"
     IMMEDIATE = "immediate"
+    MULTIPLY = "multiply"
+    MISALIGNED_MEM = "misaligned_mem"
 
 @dataclass
 class InstructionTemplate:
@@ -54,6 +56,14 @@ class CV32E40PAssemblyGenerator:
             'x24': 's8', 'x25': 's9', 'x26': 's10', 'x27': 's11',
             'x28': 't3', 'x29': 't4', 'x30': 't5', 'x31': 't6'
         }
+        
+        # Branch prediction state for generating taken branches
+        self.branch_taken_probability = 0.5  # Default 50% taken rate
+        self.register_values = {}  # Track register values for branch condition setup
+        
+        # Misaligned memory access configuration
+        self.misaligned_probability = 0.3  # 30% of memory accesses are misaligned
+        self.misaligned_offsets = [1, 2, 3, 5, 6, 7]  # Non-word-aligned offsets
         
         # Instruction templates with realistic embedded workload weights
         self.instruction_templates = {
@@ -123,6 +133,22 @@ class CV32E40PAssemblyGenerator:
             "cv.ror": InstructionTemplate("cv.ror", "R", InstrType.CUSTOM_BIT, 0.2, ["rd", "rs1", "rs2"]),
             "cv.ff1": InstructionTemplate("cv.ff1", "R", InstrType.CUSTOM_BIT, 0.2, ["rd", "rs1"]),
             "cv.cnt": InstructionTemplate("cv.cnt", "R", InstrType.CUSTOM_BIT, 0.3, ["rd", "rs1"]),
+            
+            # Multiply Instructions (7% total) - Creates multicycle hazards
+            "mul": InstructionTemplate("mul", "R", InstrType.MULTIPLY, 2.5, ["rd", "rs1", "rs2"]),
+            "mulh": InstructionTemplate("mulh", "R", InstrType.MULTIPLY, 1.0, ["rd", "rs1", "rs2"]),
+            "mulhsu": InstructionTemplate("mulhsu", "R", InstrType.MULTIPLY, 0.8, ["rd", "rs1", "rs2"]),
+            "mulhu": InstructionTemplate("mulhu", "R", InstrType.MULTIPLY, 0.8, ["rd", "rs1", "rs2"]),
+            "div": InstructionTemplate("div", "R", InstrType.MULTIPLY, 0.9, ["rd", "rs1", "rs2"]),
+            "divu": InstructionTemplate("divu", "R", InstrType.MULTIPLY, 0.7, ["rd", "rs1", "rs2"]),
+            "rem": InstructionTemplate("rem", "R", InstrType.MULTIPLY, 0.2, ["rd", "rs1", "rs2"]),
+            "remu": InstructionTemplate("remu", "R", InstrType.MULTIPLY, 0.1, ["rd", "rs1", "rs2"]),
+            
+            # Misaligned Memory Access Instructions (3% total) - Creates structural hazards
+            "lw_misaligned": InstructionTemplate("lw", "I", InstrType.MISALIGNED_MEM, 1.0, ["rd", "misaligned_offset", "rs1"]),
+            "lh_misaligned": InstructionTemplate("lh", "I", InstrType.MISALIGNED_MEM, 0.8, ["rd", "misaligned_offset", "rs1"]),
+            "sw_misaligned": InstructionTemplate("sw", "S", InstrType.MISALIGNED_MEM, 0.8, ["rs2", "misaligned_offset", "rs1"]),
+            "sh_misaligned": InstructionTemplate("sh", "S", InstrType.MISALIGNED_MEM, 0.4, ["rs2", "misaligned_offset", "rs1"]),
         }
         
         # Memory layout for load/store operations
@@ -132,6 +158,7 @@ class CV32E40PAssemblyGenerator:
         # Label counter for branches and jumps
         self.label_counter = 0
         self.generated_labels = []
+        self.branch_setup_registers = ['t3', 't4', 't5', 't6']  # Registers for branch condition setup
         
     def get_random_register(self, exclude_zero=True) -> str:
         """Get a random register, optionally excluding x0"""
@@ -150,6 +177,31 @@ class CV32E40PAssemblyGenerator:
         """Generate random memory offset"""
         return random.randint(0, self.memory_size-4) & ~3  # Word-aligned
     
+    def get_misaligned_offset(self) -> int:
+        """Generate misaligned memory offset"""
+        base_offset = random.randint(0, self.memory_size-8) & ~3  # Start with word-aligned base
+        misalign = random.choice(self.misaligned_offsets)
+        return base_offset + misalign
+    
+    def generate_misaligned_memory_setup(self, instruction_type: str) -> List[str]:
+        """Generate setup instructions for misaligned memory access"""
+        setup_instructions = []
+        base_reg = random.choice(self.branch_setup_registers)
+        
+        # Set up base address for misaligned access
+        base_addr = self.memory_base + random.randint(0, self.memory_size//2)
+        setup_instructions.append(f"    lui {base_reg}, {base_addr >> 12}")
+        setup_instructions.append(f"    addi {base_reg}, {base_reg}, {base_addr & 0xfff}")
+        
+        # Add some test data setup for stores
+        if instruction_type in ["sw_misaligned", "sh_misaligned"]:
+            data_reg = random.choice([r for r in self.branch_setup_registers if r != base_reg])
+            test_value = random.randint(0x1000, 0xFFFF)
+            setup_instructions.append(f"    addi {data_reg}, zero, {test_value}")
+            return setup_instructions, base_reg, data_reg
+        
+        return setup_instructions, base_reg, None
+    
     def generate_label(self) -> str:
         """Generate a unique label"""
         label = f"label_{self.label_counter}"
@@ -157,7 +209,78 @@ class CV32E40PAssemblyGenerator:
         self.generated_labels.append(label)
         return label
     
-    def format_instruction(self, template: InstructionTemplate) -> str:
+    def generate_branch_setup(self, branch_type: str, taken: bool) -> List[str]:
+        """Generate instructions to set up registers for branch conditions"""
+        setup_instructions = []
+        reg1 = random.choice(self.branch_setup_registers)
+        reg2 = random.choice(self.branch_setup_registers)
+        
+        if taken:
+            # Generate conditions that will cause branch to be taken
+            if branch_type == "beq":
+                val = random.randint(1, 100)
+                setup_instructions.append(f"    addi {reg1}, zero, {val}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val}")
+            elif branch_type == "bne":
+                val1 = random.randint(1, 100)
+                val2 = random.randint(101, 200)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "blt":
+                val1 = random.randint(1, 50)
+                val2 = random.randint(51, 100)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bge":
+                val1 = random.randint(51, 100)
+                val2 = random.randint(1, 50)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bltu":
+                val1 = random.randint(1, 50)
+                val2 = random.randint(51, 100)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bgeu":
+                val1 = random.randint(51, 100)
+                val2 = random.randint(1, 50)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+        else:
+            # Generate conditions that will cause branch to NOT be taken
+            if branch_type == "beq":
+                val1 = random.randint(1, 100)
+                val2 = random.randint(101, 200)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bne":
+                val = random.randint(1, 100)
+                setup_instructions.append(f"    addi {reg1}, zero, {val}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val}")
+            elif branch_type == "blt":
+                val1 = random.randint(51, 100)
+                val2 = random.randint(1, 50)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bge":
+                val1 = random.randint(1, 50)
+                val2 = random.randint(51, 100)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bltu":
+                val1 = random.randint(51, 100)
+                val2 = random.randint(1, 50)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+            elif branch_type == "bgeu":
+                val1 = random.randint(1, 50)
+                val2 = random.randint(51, 100)
+                setup_instructions.append(f"    addi {reg1}, zero, {val1}")
+                setup_instructions.append(f"    addi {reg2}, zero, {val2}")
+        
+        return setup_instructions, reg1, reg2
+    
+    def format_instruction(self, template: InstructionTemplate, setup_regs=None, misaligned_data=None) -> str:
         """Format an instruction based on its template"""
         operands = []
         
@@ -165,15 +288,30 @@ class CV32E40PAssemblyGenerator:
             if operand == "rd":
                 operands.append(self.get_random_register())
             elif operand == "rs1":
-                operands.append(self.get_random_register())
+                if setup_regs and template.instr_type == InstrType.BRANCH:
+                    operands.append(setup_regs[0])
+                elif setup_regs and template.instr_type == InstrType.MISALIGNED_MEM:
+                    operands.append(setup_regs[0])  # Base register for memory access
+                else:
+                    operands.append(self.get_random_register())
             elif operand == "rs2":
-                operands.append(self.get_random_register())
+                if setup_regs and template.instr_type == InstrType.BRANCH:
+                    operands.append(setup_regs[1])
+                elif setup_regs and template.instr_type == InstrType.MISALIGNED_MEM and len(setup_regs) > 1:
+                    operands.append(setup_regs[1])  # Data register for store operations
+                else:
+                    operands.append(self.get_random_register())
             elif operand == "imm12":
                 operands.append(str(self.get_random_immediate(12)))
             elif operand == "shamt":
                 operands.append(str(random.randint(0, 31)))
             elif operand == "offset":
                 operands.append(str(self.get_random_offset()))
+            elif operand == "misaligned_offset":
+                if misaligned_data:
+                    operands.append(str(misaligned_data))
+                else:
+                    operands.append(str(self.get_misaligned_offset()))
             elif operand == "label":
                 # For branches, use existing labels or create forward references
                 if random.random() < 0.3 and self.generated_labels:
@@ -183,8 +321,12 @@ class CV32E40PAssemblyGenerator:
         
         return f"    {template.mnemonic} {', '.join(operands)}"
     
-    def generate_assembly(self, num_instructions: int, distribution: Dict[str, float] = None) -> str:
+    def generate_assembly(self, num_instructions: int, distribution: Dict[str, float] = None, cv_weight: float = 1.0, branch_taken_rate: float = 0.5, misaligned_rate: float = 0.3) -> str:
         """Generate assembly code with specified instruction count and distribution"""
+        
+        # Set branch taken probability and misaligned rate
+        self.branch_taken_probability = branch_taken_rate
+        self.misaligned_probability = misaligned_rate
         
         # Use default distribution if none provided
         if distribution is None:
@@ -194,6 +336,11 @@ class CV32E40PAssemblyGenerator:
         weighted_instructions = []
         for name, template in self.instruction_templates.items():
             type_weight = distribution.get(template.instr_type.value, 1.0)
+            
+            # Apply CV extension weight multiplier
+            if template.instr_type in [InstrType.CUSTOM_ALU, InstrType.CUSTOM_BIT]:
+                type_weight *= cv_weight
+            
             final_weight = template.weight * type_weight
             weighted_instructions.extend([name] * int(final_weight * 10))
         
@@ -224,7 +371,51 @@ class CV32E40PAssemblyGenerator:
             
             instr_name = random.choice(weighted_instructions)
             template = self.instruction_templates[instr_name]
-            assembly.append(self.format_instruction(template))
+            
+            # Special handling for branch instructions to create predictable taken/not-taken patterns
+            if template.instr_type == InstrType.BRANCH:
+                branch_taken = random.random() < self.branch_taken_probability
+                setup_instructions, reg1, reg2 = self.generate_branch_setup(template.mnemonic, branch_taken)
+                
+                # Add setup instructions
+                for setup_instr in setup_instructions:
+                    assembly.append(setup_instr)
+                
+                # Add the branch instruction with setup registers
+                assembly.append(self.format_instruction(template, setup_regs=[reg1, reg2]))
+                
+                # Add some instructions after branch to create pipeline flush scenarios
+                if branch_taken:
+                    # Add a few NOPs or simple instructions that will be flushed
+                    assembly.append("    nop  # This will be flushed if branch taken")
+                    assembly.append("    nop  # This will be flushed if branch taken")
+            
+            # Special handling for misaligned memory instructions
+            elif template.instr_type == InstrType.MISALIGNED_MEM:
+                setup_instructions, base_reg, data_reg = self.generate_misaligned_memory_setup(instr_name)
+                
+                # Add setup instructions
+                for setup_instr in setup_instructions:
+                    assembly.append(setup_instr)
+                
+                # Generate misaligned offset
+                misaligned_offset = random.choice(self.misaligned_offsets)
+                
+                # Add the misaligned memory instruction
+                if data_reg:  # Store instruction
+                    assembly.append(self.format_instruction(template, setup_regs=[base_reg, data_reg], misaligned_data=misaligned_offset))
+                else:  # Load instruction
+                    assembly.append(self.format_instruction(template, setup_regs=[base_reg], misaligned_data=misaligned_offset))
+                
+                # Add comment about the misalignment
+                assembly.append(f"    # Above instruction uses misaligned offset {misaligned_offset} - will cause structural hazard")
+                
+                # Add a few instructions that might be affected by the misaligned access stall
+                assembly.append("    nop  # May be stalled due to misaligned access")
+                assembly.append("    add t1, t1, t2  # May be stalled due to misaligned access")
+            
+            else:
+                assembly.append(self.format_instruction(template))
         
         # Add remaining labels that were referenced but not yet defined
         for label in self.generated_labels:
@@ -281,8 +472,14 @@ def main():
                        help='Random seed for reproducible generation')
     parser.add_argument('--stats', action='store_true',
                        help='Generate statistics file')
-    parser.add_argument('--preset', choices=['embedded', 'dsp', 'control', 'mixed'], default='embedded',
+    parser.add_argument('--preset', choices=['embedded', 'dsp', 'control', 'mixed', 'multiply_heavy', 'branch_heavy', 'misaligned_heavy'], default='embedded',
                        help='Use preset distribution (default: embedded)')
+    parser.add_argument('--cv-weight', type=float, default=1.0,
+                       help='Weight multiplier for CV32E40P extension instructions (default: 1.0)')
+    parser.add_argument('--branch-taken-rate', type=float, default=0.5,
+                       help='Probability of branches being taken (0.0-1.0, default: 0.5)')
+    parser.add_argument('--misaligned-rate', type=float, default=0.3,
+                       help='Probability of memory accesses being misaligned (0.0-1.0, default: 0.3)')
     
     args = parser.parse_args()
     
@@ -301,25 +498,37 @@ def main():
         presets = {
             'embedded': {
                 'arithmetic': 2.0, 'logical': 1.5, 'shift': 1.0, 'comparison': 1.2,
-                'branch': 1.8, 'load_store': 2.5, 'jump': 0.5, 'custom_alu': 0.8, 'custom_bit': 0.3
+                'branch': 1.8, 'load_store': 2.5, 'jump': 0.5, 'custom_alu': 0.8, 'custom_bit': 0.3, 'multiply': 0.8, 'misaligned_mem': 0.2
             },
             'dsp': {
                 'arithmetic': 3.0, 'logical': 1.0, 'shift': 2.0, 'comparison': 1.0,
-                'branch': 1.0, 'load_store': 2.0, 'jump': 0.3, 'custom_alu': 2.0, 'custom_bit': 1.5
+                'branch': 1.0, 'load_store': 2.0, 'jump': 0.3, 'custom_alu': 2.0, 'custom_bit': 1.5, 'multiply': 2.5, 'misaligned_mem': 0.5
             },
             'control': {
                 'arithmetic': 1.5, 'logical': 2.0, 'shift': 0.8, 'comparison': 2.5,
-                'branch': 3.0, 'load_store': 1.5, 'jump': 1.0, 'custom_alu': 0.5, 'custom_bit': 0.8
+                'branch': 3.0, 'load_store': 1.5, 'jump': 1.0, 'custom_alu': 0.5, 'custom_bit': 0.8, 'multiply': 0.3, 'misaligned_mem': 0.1
             },
             'mixed': {
                 'arithmetic': 1.0, 'logical': 1.0, 'shift': 1.0, 'comparison': 1.0,
-                'branch': 1.0, 'load_store': 1.0, 'jump': 1.0, 'custom_alu': 1.0, 'custom_bit': 1.0
+                'branch': 1.0, 'load_store': 1.0, 'jump': 1.0, 'custom_alu': 1.0, 'custom_bit': 1.0, 'multiply': 1.0, 'misaligned_mem': 1.0
+            },
+            'multiply_heavy': {
+                'arithmetic': 1.0, 'logical': 0.5, 'shift': 0.5, 'comparison': 0.8,
+                'branch': 0.8, 'load_store': 1.5, 'jump': 0.3, 'custom_alu': 0.5, 'custom_bit': 0.3, 'multiply': 4.0, 'misaligned_mem': 0.3
+            },
+            'branch_heavy': {
+                'arithmetic': 1.0, 'logical': 0.8, 'shift': 0.5, 'comparison': 1.5,
+                'branch': 4.0, 'load_store': 1.0, 'jump': 1.5, 'custom_alu': 0.3, 'custom_bit': 0.2, 'multiply': 0.5, 'misaligned_mem': 0.2
+            },
+            'misaligned_heavy': {
+                'arithmetic': 1.0, 'logical': 0.8, 'shift': 0.5, 'comparison': 0.8,
+                'branch': 1.0, 'load_store': 2.0, 'jump': 0.3, 'custom_alu': 0.5, 'custom_bit': 0.3, 'multiply': 0.8, 'misaligned_mem': 3.0
             }
         }
         distribution = presets[args.preset]
     
     # Generate assembly
-    assembly_code = generator.generate_assembly(args.num_instructions, distribution)
+    assembly_code = generator.generate_assembly(args.num_instructions, distribution, args.cv_weight, args.branch_taken_rate, args.misaligned_rate)
     
     # Write output file
     with open(args.output, 'w') as f:

@@ -158,4 +158,23 @@ package risc_pkg;
     ALU_PCKHI = 7'b0111001
   } alu_opcode_e;
 
+  // CSR Address Constants (RISC-V Standard)
+  parameter logic [11:0] CSR_MSTATUS  = 12'h300;  // Machine Status Register
+  parameter logic [11:0] CSR_MISA     = 12'h301;  // Machine ISA Register
+  parameter logic [11:0] CSR_MIE      = 12'h304;  // Machine Interrupt Enable
+  parameter logic [11:0] CSR_MTVEC    = 12'h305;  // Machine Trap Vector Base Address
+  parameter logic [11:0] CSR_MSCRATCH = 12'h340;  // Machine Scratch Register
+  parameter logic [11:0] CSR_MEPC     = 12'h341;  // Machine Exception Program Counter
+  parameter logic [11:0] CSR_MCAUSE   = 12'h342;  // Machine Cause Register
+  parameter logic [11:0] CSR_MTVAL    = 12'h343;  // Machine Trap Value Register
+  parameter logic [11:0] CSR_MIP      = 12'h344;  // Machine Interrupt Pending
+  parameter logic [11:0] CSR_MCYCLE     = 12'hB00;  // Machine Cycle Counter
+  parameter logic [11:0] CSR_MINSTRET   = 12'hB02;  // Machine Instructions Retired Counter
+  parameter logic [11:0] CSR_MCOUNTEREN = 12'h306;  // Machine Counter Enable Register
+  
+  // Debug CSRs
+  parameter logic [11:0] CSR_DCSR     = 12'h7B0;  // Debug Control and Status Register
+  parameter logic [11:0] CSR_DPC      = 12'h7B1;  // Debug Program Counter
+  parameter logic [11:0] CSR_DSCRATCH = 12'h7B2;  // Debug Scratch Register
+
 endpackage
